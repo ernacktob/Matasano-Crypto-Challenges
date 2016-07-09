@@ -4,4 +4,4 @@ This is currently a work in progress. I will gradually upload my solutions for t
 
 The challenges can be found here: http://cryptopals.com
 
-Current status: Sets 1 to 5 completed.
+Current status: Sets 1 to 6 completed.

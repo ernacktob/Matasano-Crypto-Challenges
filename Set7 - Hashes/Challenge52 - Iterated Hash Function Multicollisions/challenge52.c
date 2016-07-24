@@ -21,6 +21,8 @@ static void merkle_darmgard(const uint8_t *message, size_t mlen, uint8_t *state,
 	size_t padlen;
 	size_t i;
 
+	assert(BLOCK_SIZE > 8);
+	assert(sizeof mlen <= 8);
 	assert(slen <= BLOCK_SIZE);
 	memset(key, 0, sizeof key);
 
@@ -30,10 +32,29 @@ static void merkle_darmgard(const uint8_t *message, size_t mlen, uint8_t *state,
 		memcpy(state, out, slen);
 	}
 
-	/* Pad last block with zeros. */
-	if (mlen % BLOCK_SIZE != 0) {
+	/* Pad last block. */
+	/* Paddig format is:
+	 * 	append bit '1' after message
+	 * 	append bit '0' until 8 bytes remain
+	 * 		(if there were less than 8 to start with, add new block)
+	 * 	in the last remaining 8 bytes, write message length mlen in little-endian. */
+	if (BLOCK_SIZE - mlen % BLOCK_SIZE >= 8) {
 		memset(last_block, 0, sizeof last_block);
-		memcpy(last_block, message + i * BLOCK_SIZE, mlen - i * BLOCK_SIZE);
+		memcpy(last_block, message + i * BLOCK_SIZE, mlen % BLOCK_SIZE);
+		last_block[mlen % BLOCK_SIZE] = 0x80;	/* Append bit '1'. */
+		memcpy(last_block + sizeof last_block - 8, &mlen, sizeof mlen);	/* Append the length. */
+		memcpy(key, state, slen);
+		compress(out, last_block, key);
+		memcpy(state, out, slen);
+	} else {
+		memset(last_block, 0, sizeof last_block);
+		memcpy(last_block, message + i * BLOCK_SIZE, mlen % BLOCK_SIZE);
+		last_block[mlen % BLOCK_SIZE] = 0x80;
+		memcpy(key, state, slen);
+		compress(out, last_block, key);
+		memcpy(state, out, slen);
+		memset(last_block, 0, sizeof last_block);
+		memcpy(last_block + sizeof last_block - 8, &mlen, sizeof mlen);
 		memcpy(key, state, slen);
 		compress(out, last_block, key);
 		memcpy(state, out, slen);
@@ -148,24 +169,43 @@ int find_single_collision_from_set(uint8_t *m1, uint8_t *m2, uint8_t (*blocks1)[
 {
 	static uint32_t hash_table[1 << 16][10];
 	static uint8_t bucket_sizes[1 << 16] = {0};
+	uint8_t padding_block[BLOCK_SIZE];
 	uint32_t value = 0, value2 = 0;
 	uint32_t i, j;
 	size_t k, n;
+	uint64_t bs;
 
 	assert(hlen <= 4);
 	assert(BLOCK_SIZE >= 4);
+	assert(BLOCK_SIZE >= 8);
 	++collision_calls;
+
+	/* Note: nblocks counts number of collision message blocks, it doesn't count the padding blocks
+	 * that are added (so in reality the message consists of BLOCK || PADDING || BLOCK || PADDING || ...
+	 * This is because the hash will add the padding during computation, so it must be also in the message,
+	 * at least until the last block. Last block of message should NOT have this padding, as it will be implicit
+	 * in the hash function itself. */
+
+	/* The padding length is BLOCK_SIZE, since the collisions were computed with blocks of length BLOCK_SIZE. */
+	bs = BLOCK_SIZE;
+	memset(padding_block, 0, sizeof padding_block);
+	padding_block[0] = 0x80;
+	memcpy(padding_block + BLOCK_SIZE - 8, &bs, sizeof bs);
 
 	/* Use each bit of i to indicate whether block1 or block2 is used. */
 	for (i = 0; i < (1 << nblocks); i++) {
 		for (k = 0; k < nblocks; k++) {
 			if (((i >> k) & 0x1) == 0)
-				memcpy(m1 + k * BLOCK_SIZE, blocks1[k], sizeof blocks1[k]);
+				memcpy(m1 + 2 * k * BLOCK_SIZE, blocks1[k], sizeof blocks1[k]);
 			else
-				memcpy(m1 + k * BLOCK_SIZE, blocks2[k], sizeof blocks2[k]);
+				memcpy(m1 + 2 * k * BLOCK_SIZE, blocks2[k], sizeof blocks2[k]);
+
+			/* Don't add padding block for the last block (it's done by the hash function itself). */
+			if (k != nblocks - 1)
+				memcpy(m1 + (2 * k + 1) * BLOCK_SIZE, padding_block, sizeof padding_block);
 		}
 
-		hash((uint8_t *)&value, m1, nblocks * BLOCK_SIZE, 1);
+		hash((uint8_t *)&value, m1, (2 * nblocks - 1) * BLOCK_SIZE, 1);
 
 		/* Search bucket for collisions. */
 		for (n = 0; n < bucket_sizes[value & 0xffff]; n++) {
@@ -174,12 +214,15 @@ int find_single_collision_from_set(uint8_t *m1, uint8_t *m2, uint8_t (*blocks1)[
 			/* Copy corresponding m2. */
 			for (k = 0; k < nblocks; k++) {
 				if (((j >> k) & 0x1) == 0)
-					memcpy(m2 + k * BLOCK_SIZE, blocks1[k], sizeof blocks1[k]);
+					memcpy(m2 + 2 * k * BLOCK_SIZE, blocks1[k], sizeof blocks1[k]);
 				else
-					memcpy(m2 + k * BLOCK_SIZE, blocks2[k], sizeof blocks2[k]);
+					memcpy(m2 + 2 * k * BLOCK_SIZE, blocks2[k], sizeof blocks2[k]);
+
+				if (k != nblocks - 1)
+					memcpy(m2 + (2 * k + 1) * BLOCK_SIZE, padding_block, sizeof padding_block);
 			}
 
-			hash((uint8_t *)&value2, m2, nblocks * BLOCK_SIZE, 1);
+			hash((uint8_t *)&value2, m2, (2 * nblocks - 1) * BLOCK_SIZE, 1);
 
 			/* We found a collision! */
 			if (value2 == value)
@@ -253,7 +296,7 @@ int find_multicollision(uint8_t *m1, uint8_t *m2, size_t hlen_f, hash_fn hf, siz
 
 int main()
 {
-	uint8_t m1[BLOCK_SIZE * 17], m2[BLOCK_SIZE * 17];
+	uint8_t m1[2 * BLOCK_SIZE * 17 - BLOCK_SIZE], m2[2 * BLOCK_SIZE * 17 - BLOCK_SIZE];	/* 17 message blocks in format: BLOCK || PAD || BLOCK || PAD || ... || BLOCK. */
 	uint8_t hash1[6], hash2[6];
 	int i;
 

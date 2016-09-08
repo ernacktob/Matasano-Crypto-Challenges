@@ -13,7 +13,7 @@ unsigned int collision_calls = 0;
 typedef void (*compression_fn)(uint8_t out[BLOCK_SIZE], const uint8_t block[BLOCK_SIZE], const uint8_t key[BLOCK_SIZE]);
 typedef void (*hash_fn)(uint8_t *hash, const uint8_t *message, size_t len, int init);
 
-static void merkle_darmgard(const uint8_t *message, size_t mlen, uint8_t *state, size_t slen, compression_fn compress)
+static void merkle_damgard(const uint8_t *message, size_t mlen, uint8_t *state, size_t slen, compression_fn compress)
 {
 	uint8_t key[BLOCK_SIZE];
 	uint8_t out[BLOCK_SIZE];
@@ -79,7 +79,7 @@ static void hash_f(uint8_t *hash, const uint8_t *message, size_t len, int init)
 		hash[1] = 0x34;
 	}
 
-	merkle_darmgard(message, len, hash, hlen, aes_encrypt);
+	merkle_damgard(message, len, hash, hlen, aes_encrypt);
 }
 
 static void hash_g(uint8_t *hash, const uint8_t *message, size_t len, int init)
@@ -93,7 +93,7 @@ static void hash_g(uint8_t *hash, const uint8_t *message, size_t len, int init)
 		hash[3] = 0xef;
 	}
 
-	merkle_darmgard(message, len, hash, hlen, aes_encrypt);
+	merkle_damgard(message, len, hash, hlen, aes_encrypt);
 }
 
 /* Concatenate f(x) and g(x). */

@@ -355,10 +355,38 @@ int main()
 	hash_f(hash_M, M, sizeof M, 1);
 	hash_f(hash_second_M, second_M, sizeof second_M, 1);
 
-	if (memcmp(hash_M, hash_second_M, sizeof hash_M) != 0)
-		printf("Failed to find collision.\n");
-	else
-		printf("Successfully found collision with %lu hash calls.\n", hash_calls);
+	if (memcmp(hash_M, hash_second_M, sizeof hash_M) != 0) {
+		printf("Failed to find second preimage.\n");
+		return 0;
+	}
+
+	printf("Successfully found second preimage for f(x).\n");
+	printf("f(M1):\t%02x%02x%02x%02x\n", hash_M[0], hash_M[1], hash_M[2], hash_M[3]);
+	printf("f(M2):\t%02x%02x%02x%02x\n", hash_second_M[0], hash_second_M[1], hash_second_M[2], hash_second_M[3]);
+	printf("M1: \"");
+
+	for (i = 0; i < 100; i++)
+		printf("\\x%02x", M[i]);
+
+	printf("...");
+
+	for (i = sizeof M - 100; i < sizeof M; i++)
+		printf("\\x%02x", M[i]);
+
+	printf("\"\n");
+	printf("M2: \"");
+
+	for (i = 0; i < 100; i++)
+		printf("\\x%02x", second_M[i]);
+
+	printf("...");
+
+	for (i = sizeof second_M - 100; i < sizeof second_M; i++)
+		printf("\\x%02x", second_M[i]);
+
+	printf("\"\n");
+	printf("Total message length: %lu\n", sizeof M);
+	printf("Number of hash computations: %lu\n", hash_calls);
 
 	return 0;
 }
